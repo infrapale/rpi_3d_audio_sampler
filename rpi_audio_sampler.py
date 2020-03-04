@@ -7,28 +7,39 @@ sudo apt-get install python3-pip
 sudo apt-get install python3-pil
 sudo i2cdetect -y 1
 """
+import os
+import subprocess
 import board
 # Import Python System Libraries
 import time
+from datetime import datetime
 # Import Raspberry Libraries
 from gpiozero  import Button
 # Import Blinka Libraries
 import busio
 from digitalio import DigitalInOut, Direction, Pull
-
 from PIL import Image, ImageDraw
-# Import the SSD1306 module.
 import adafruit_ssd1306
-# Import RFM9x
-
 import os
 from timeit import default_timer as timer
 from subprocess import call
+import pyaudio
+import wave
 
-# Create the I2C interface.
 i2c = busio.I2C(board.SCL, board.SDA)
-# Create the SSD1306 OLED class.
 disp = adafruit_ssd1306.SSD1306_I2C(128, 64, i2c)
+
+p = pyaudio.PyAudio()
+adev_list = []
+mic_name = ['Blue','Logitech'][1]
+for ii in range(p.get_device_count()):
+    adev_list = adev_list + [p.get_device_info_by_index(ii).get('name')]
+print(adev_list)
+#aindx_str = [i for i in adev_list if 'Logitech' in i][0]
+aindx_str = [i for i in adev_list if mic_name in i][0]
+aindx = adev_list.index(aindx_str)
+print(aindx_str,aindx)
+
 
 
 
@@ -45,7 +56,7 @@ btn_Center = Button(io_pin['Btn_Center'])
 # Create the I2C interface.
 i2c = busio.I2C(board.SCL, board.SDA)
 
-# 128x32 OLED Display
+# 128x64 OLED Display
 display = adafruit_ssd1306.SSD1306_I2C(128, 64, i2c, addr=0x3c)
 # Clear the display.
 display.fill(0)
@@ -53,15 +64,18 @@ display.show()
 width = display.width
 height = display.height
 menu_state = 'Home'
-row_buff = ['']*8
+recording = False
+
+time_btw_tx  = 30
+duration_min =120 
+menu_state = 'Home'
+last_time = timer()
 
 # IP address
 try:
     ip_addr= os.popen('hostname -I').read().split(' ')[0]
 except:
     ip_addr = 'No IP'
-
-# menu_state = 'Initial State'
 
 row_buff = ['']*6
 row_list = [0,11,22,33,44,55]
@@ -79,7 +93,7 @@ def show_rows():
     else:   
         row_buff[3] = 'A: '+menu_dict[menu_state]['A'][0]
         row_buff[4] = 'B: '+menu_dict[menu_state]['B'][0]
-        row_buff[5] = 'Row5'
+        row_buff[5] = str(time_btw_tx) +' sec '+ str(duration_min) +' min'
     
     ip_addr
     # draw a box to clear the image
@@ -92,37 +106,103 @@ def shut_down():
     call("sudo shutdown -h now", shell=True)    
 
 def reboot():
-    call("sudo shutdown -r now", shell=True)    
+    call("sudo shutdown -r now", shell=True)
+
+def copy_clip(file_name):
+    p = subprocess.Popen(["scp", file_name, "tom@192.168.0.10:3d_audio"])
+    sts = os.waitpid(p.pid, 0)
+
+def rec_audio_clip(clip_name):
+    print('Recording')
+    form_1 = pyaudio.paInt16 # 16-bit resolution
+    chans = 1 # 1 channel
+    samp_rate = 44100 # 44.1kHz sampling rate
+    chunk = 4096 # 2^12 samples for buffer
+    record_secs = 3 # seconds to record
+    dev_index = aindx # device index found by p.get_device_info_by_index(ii)
+    wav_output_filename = clip_name+'.wav' # name of .wav file
+
+    audio = pyaudio.PyAudio() # create pyaudio instantiation
+
+    # create pyaudio stream
+    stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \
+                        input_device_index = dev_index,input = True, \
+                        frames_per_buffer=chunk)
+    print("recording")
+    frames = []
+
+    # loop through stream and append audio chunks to frame array
+    for ii in range(0,int((samp_rate/chunk)*record_secs)):
+        data = stream.read(chunk)
+        frames.append(data)
+
+    print("finished recording")
+
+    # stop the stream, close it, and terminate the pyaudio instantiation
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+
+    # save the audio frames as .wav file
+    wavefile = wave.open(wav_output_filename,'wb')
+    wavefile.setnchannels(chans)
+    wavefile.setsampwidth(audio.get_sample_size(form_1))
+    wavefile.setframerate(samp_rate)
+    wavefile.writeframes(b''.join(frames))
+    wavefile.close()
+    copy_clip(wav_output_filename)
+
+def start_rec():
+    global recording
+    recording = True
+    
+def stop_rec():
+    global recording
+    recording = False
+    
+def adjust_duration(t_min):
+    global duration_min
+    duration_min = duration_min + t_min
+    if duration_min < 0:
+        duration_min = 0
+    
+def adjust_interval(t_sec):
+    global time_btw_tx
+    time_btw_tx = time_btw_tx + t_sec
+    if time_btw_tx < 0:
+        time_btw_tx = 0
+    
+    
 
 menu_dict = {
-    'Home':       {'A':['Home','Home',nop],
-                   'B':['Home','Home',nop],
+    'Home':       {'A':['Start Rec','Recording',start_rec],
+                   'B':['Stop Rec','Home',stop_rec],
                    'U':['IP address','IP address',nop],
                    'D':['Shutdown','Shutdown',nop],
                    'L':['Home','Home',nop],
                    'R':['Home','Home',nop],
                    'C':['Home','Home',nop]},
-    'Shutdown':   {'A':['Shutdown','Shutdown',shut_down],
-                   'B':['Restart','Shutdown',reboot],
+    'Shutdown':   {'A':['Shutdown','Home',shut_down],
+                   'B':['Restart','Home',reboot],
                    'U':['Home','Home',nop],
                    'D':['Home','Home',nop],
                    'L':['Home','Home',nop],
                    'R':['Home','Home',nop],
                    'C':['Home','Home',nop]},
+    'Recording':  {'A':['Home','Home',shut_down],
+                   'B':['Stop Recording','Home',stop_rec],
+                   'U':['+10 min','Recording',lambda: adjust_duration(10)],
+                   'D':['-10 min','Recording',lambda: adjust_duration(-10)],
+                   'L':['-Ival','Recording',lambda: adjust_interval(-10)],
+                   'R':['+Ival','Recording',lambda: adjust_interval(10)],
+                   'C':['Home','Home',nop]},
     'IP address': {'A':['Home','Home',nop],
                    'B':['Home','Home',nop],
-                   'U':['Return home','Home',nop],
+                   'U':['Home','Home',nop],
                    'D':['Home','Home',nop],
                    'L':['Home','Home',nop],
                    'R':['Home','Home',nop],
-                   'C':['Home','Home',nop]},
-    'Sending':    {'A':['','Home',nop],
-                   'B':['','Home',nop],
-                   'U':['Return home','Home',nop],
-                   'D':['Home','Home',nop],
-                   'L':['Home','Home',nop],
-                   'R':['Home','Home',nop],
-                   'C':['Home','Home',nop]},
+                   'C':['Home','Home',nop]}
 }
 
 
@@ -140,15 +220,26 @@ btn_Left.when_pressed = lambda: do_btn('L')
 btn_Right.when_pressed = lambda: do_btn('R')
 btn_Center.when_pressed = lambda: do_btn('C')
 
-time_btw_tx = 10
-menu_state = 'Home'
-last_time = timer()
-
+time1 = time.monotonic()
+next_clip = time1 + time_btw_tx
 while True:
-    now_time = timer()
-    if ( now_time -last_time ) >  time_btw_tx:
-        last_time =  last_time + time_btw_tx
-        print(now_time)
+
+    if time.monotonic() > time1 + 60:
+        time1 = time1 + 60
+        duration_min = duration_min -1
+    if duration_min > 0:
+        if time.monotonic() > time1:
+            time1 = time1 + time_btw_tx
+            ts = time.gmtime()
+            st = time.strftime("%Y-%m-%d_%H-%M-%S", ts)
+            if recording:
+                try:
+                    rec_audio_clip(st)
+                except:
+                    print('Recording failed')
+            print(st)
+
+            
 
     show_rows()
     time.sleep(0.1)
