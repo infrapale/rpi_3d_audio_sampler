@@ -32,7 +32,7 @@ disp = adafruit_ssd1306.SSD1306_I2C(128, 64, i2c)
 
 p = pyaudio.PyAudio()
 adev_list = []
-mic_name = ['Blue','Logitech'][1]
+mic_name = ['Blue','Logitech','USB PnP Sound Device'][2]
 for ii in range(p.get_device_count()):
     adev_list = adev_list + [p.get_device_info_by_index(ii).get('name')]
 print(adev_list)
@@ -72,7 +72,7 @@ duration_min =120
 menu_state = 'Home'
 last_time = timer()
 failures = 0
-update_disp = True
+update_display = True
 menu_info = ''
 
 # IP address
@@ -86,32 +86,36 @@ row_list = [0,11,22,33,44,55]
 btn_list = ['Up','Down','Left','Right','A','B','C']
 
 def nop():
-    pass
+    global menu_info
+    print(menu_info)
+def show_ip():
+    global menu_info
+    menu_info = ip_addr
+    print(menu_info)
+    
 
 def show_rows():
     global update_display
     global menu_info
 
-    last_row = {'Home': ip_addr,
-                'Shutdown': 'goodby',
-                'Recording': str(time_btw_tx) +' sec '+ str(duration_min) +' min',
-                'IP address': ip_addr 
-        }
-    
-    row_buff[0] = menu_state + ' ' + menu_info
+    print('show_rows ', menu_state)
+    row_buff[0] = menu_state
+    r = 1
+
+    while r < 5:
+        row_buff[r] = ''
+        r=r+1
     r = 1
     i = 0
+    
     while r < 5 and i < len(btn_list):
         s = menu_dict[menu_state][btn_list[i]][0]
         if s != '':
             row_buff[r] = btn_list[i] + ': ' + s
             r=r+1
         i=i+1
-    while r < 5:
-        row_buff[r] = ''
-        r=r+1
         
-    # row_buff[5] = last_row[menu_state]
+    row_buff[5] = menu_info
     
     #ip_addr
     # draw a box to clear the image
@@ -121,12 +125,16 @@ def show_rows():
     display.show()
 
 def shut_down():
-    print("shutdown")
-    # call("sudo shutdown -h now", shell=True)    
+    global menu_info
+    menu_info = 'shutdown'
+    print(menu_info)
+    call("sudo shutdown -h now", shell=True)    
 
 def reboot():
-    print("reboot")
-    # call("sudo shutdown -r now", shell=True)
+    global menu_info
+    menu_info = "reboot"
+    print(menu_info)
+    call("sudo shutdown -r now", shell=True)
 
 def copy_clip(file_name):
     try:
@@ -138,6 +146,8 @@ def copy_clip(file_name):
         
 def rec_audio_clip(clip_name):
     print('Recording')
+    do_continue = True
+    
     form_1 = pyaudio.paInt16 # 16-bit resolution
     chans = 1 # 1 channel
     samp_rate = 44100 # 44.1kHz sampling rate
@@ -145,48 +155,71 @@ def rec_audio_clip(clip_name):
     record_secs = 3 # seconds to record
     dev_index = aindx # device index found by p.get_device_info_by_index(ii)
     wav_output_filename = WAV_DIR + '/' +clip_name+'.wav' # name of .wav file
-    try:
-        audio = pyaudio.PyAudio() # create pyaudio instantiation
-
-        # create pyaudio stream
-        stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \
-                        input_device_index = dev_index,input = True, \
-                        frames_per_buffer=chunk)
-        print("recording")
-        frames = []
-
-        # loop through stream and append audio chunks to frame array
-        for ii in range(0,int((samp_rate/chunk)*record_secs)):
-            data = stream.read(chunk)
-            frames.append(data)
-
-        print("finished recording")
-        # stop the stream, close it, and terminate the pyaudio instantiation
-        stream.stop_stream()
-        stream.close()
-        audio.terminate()
-
-        # save the audio frames as .wav file
-        wavefile = wave.open(wav_output_filename,'wb')
-        wavefile.setnchannels(chans)
-        wavefile.setsampwidth(audio.get_sample_size(form_1))
-        wavefile.setframerate(samp_rate)
-        wavefile.writeframes(b''.join(frames))
-        wavefile.close()
-        copy_clip(wav_output_filename)
-    except:
+    if do_continue:
+        try:
+            audio = pyaudio.PyAudio() # create pyaudio instantiation
+        except:
+            print('Failed to create a pyaudio instance')
+            do_continue = False
+    if do_continue:
+        try:
+            # create pyaudio stream
+            stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \
+                            input_device_index = dev_index,input = True, \
+                            frames_per_buffer=chunk)
+            print("Audio Stream")
+            frames = []
+        except:
+            print('Failed to create an audio stream')
+            do_continue = False
+    if do_continue:
+        try:
+            # loop through stream and append audio chunks to frame array
+            for ii in range(0,int((samp_rate/chunk)*record_secs)):
+                data = stream.read(chunk)
+                frames.append(data)
+        except:
+            print('failed when reading the stream')
+            do_continue = False
+    if do_continue:
+        try:
+            print("finished recording")
+            # stop the stream, close it, and terminate the pyaudio instantiation
+            stream.stop_stream()
+            stream.close()
+            audio.terminate()
+        except:
+            print('failed when reading the stream')
+            do_continue = False
+    if do_continue:
+        try:
+            # save the audio frames as .wav file
+            wavefile = wave.open(wav_output_filename,'wb')
+            wavefile.setnchannels(chans)
+            wavefile.setsampwidth(audio.get_sample_size(form_1))
+            wavefile.setframerate(samp_rate)
+            wavefile.writeframes(b''.join(frames))
+            wavefile.close()
+            copy_clip(wav_output_filename)
+        except:
+            do_continue = False
+            print('Saving recorded data failed')
+    if not do_continue:
         failures = failures + 1
-        print('Recording failed')
-
+         
 
  
 def start_rec():
     global recording
+    global menu_info
     recording = True
+    menu_info = 'Start recording'
     
 def stop_rec():
     global recording
+    global menu_info
     recording = False
+    menu_info = 'Stop recording'
     
 def adjust_duration(t_min):
     global duration_min
@@ -195,7 +228,7 @@ def adjust_duration(t_min):
     duration_min = duration_min + t_min
     if duration_min < 0:
         duration_min = 0
-    menu_info = str(duration_min) + ' min'    
+    menu_info = 'Duration ' + str(duration_min) + ' min'    
     
 def adjust_interval(t_sec):
     global time_btw_tx
@@ -204,68 +237,72 @@ def adjust_interval(t_sec):
     time_btw_tx = time_btw_tx + t_sec
     if time_btw_tx < 0:
         time_btw_tx = 0
-    menu_info = str(time_btw_tx) + ' sec'
+    menu_info = 'Interval ' + str(time_btw_tx) + ' sec'
+def rec_main():
+    global menu_info
+    menu_info = str(duration_min) + 'min x ' + str(time_btw_tx) + 'sec'
     
     
+# menu_dict  = { state_name: {*:[menu_name, next_state, callback_function]}}    
 
 menu_dict = {
-    'Home':       {'A':     ['','',start_rec],
-                   'B':     ['Close','Close',stop_rec],
-                   'Up':    ['IP address','IP address',nop],
-                   'Down':  ['Start/Stop','Start/Stop',nop],
+    'Home':       {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
+                   'Up':    ['IP address','IP address',show_ip],
+                   'Down':  ['Start','Start',rec_main],
                    'Left':  ['','Home',nop],
                    'Right': ['','Home',nop],
                    'C':     ['','Home',nop]},
-    'Close':      {'A':     ['Shutdown','Home',shut_down],
-                   'B':     ['Restart','Home',reboot],
+    'Close':      {'A':     ['Shutdown','',shut_down],
+                   'B':     ['Restart','',reboot],
                    'Up':    ['Home','Home',nop],
                    'Down':  ['','',nop],
                    'Left':  ['','',nop],
                    'Right': ['','',nop],
                    'C':     ['','',nop]},
-    'Start/Stop': {'A':     ['Start','Running',start_rec],
-                   'B':     ['Stop','Home',stop_rec],
+    'Start':      {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
                    'Up':    ['Interval','Interval',lambda: adjust_interval(0)],
                    'Down':  ['Duration','Duration',lambda: adjust_duration(0)],
-                   'Left':  ['','',nop],
+                   'Left':  ['Home','Home',nop],
                    'Right': ['','',nop],
-                   'C':     ['','',nop]},
-    'Duration':   {'A':     ['','',nop],
-                   'B':     ['Home','Home',stop_rec],
-                   'Up':    ['Start/Stop','Start/Stop',nop],
+                   'C':     ['Start','Running',start_rec]},
+    'Duration':   {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
+                   'Up':    ['Start','Start',rec_main],
                    'Down':  ['Interval','Interval',lambda: adjust_interval(0)],
                    'Left':  ['-10 min','',lambda: adjust_duration(-10)],
                    'Right': ['+10 min','',lambda: adjust_duration(10)],
-                   'C':     ['','Home',nop]},
+                   'C':     ['','',nop]},
  
-    'Interval':   {'A':     ['','',nop],
-                   'B':     ['Home','Home',nop],
+    'Interval':   {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
                    'Up':    ['Duration','Duration',lambda: adjust_duration(0)],
-                   'Down':  ['Start/Stop','Start/Stop',nop],
+                   'Down':  ['Start','Start',rec_main],
                    'Left':  ['-Ival','',lambda: adjust_interval(-10)],
                    'Right': ['+Ival','',lambda: adjust_interval(10)],
-                   'C':     ['','Home',nop]},
-    'Running':    {'A':     ['','',nop],
-                   'B':     ['Stop','Home',stop_rec],
+                   'C':     ['','',nop]},
+    'Running':    {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
                    'Up':    ['Interval','Interval',lambda: adjust_interval(0)],
                    'Down':  ['Duration','Duration',lambda: adjust_duration(0)],
-                   'Left':  ['','',nop],
-                   'Right': ['','',nop],
-                   'C':     ['','Home',nop]},  
-    'Ready':      {'A':     ['Home','Home',nop],
-                   'B':     ['Close','Close',nop],
+                   'Left':  ['Stop','Start',stop_rec],
+                   'Right': ['Start','',start_rec],
+                   'C':     ['','',nop]},  
+    'Ready':      {'A':     ['','Close',nop],
+                   'B':     ['','Close',nop],
                    'Up':    ['','',nop],
                    'Down':  ['','',nop],
                    'Left':  ['','',nop],
                    'Right': ['','',nop],
                    'C':     ['','',nop]},
-     'IP address': {'A':     ['','Home',nop],
-                   'B':     ['','Home',nop],
-                   'Up':    ['','Home',nop],
-                   'Down':  ['','Home',nop],
-                   'Left':  ['','Home',nop],
-                   'Right': ['','Home',nop],
-                   'C':     ['','Home',nop]}
+     'IP address': {'A':    ['','',nop],
+                   'B':     ['','',nop],
+                   'Up':    ['Close','Close',nop],
+                   'Down':  ['Home','Home',nop],
+                   'Left':  ['','',nop],
+                   'Right': ['','',nop],
+                   'C':     ['','',nop]}
 }
 
 
@@ -278,10 +315,11 @@ def do_btn(btn_name):
     new_state = menu_dict[menu_state][btn_name][1]
     menu_dict[menu_state][btn_name][2]()
     
-    update_display = True    
-    print(btn_name,menu_state,new_state)
+    print(menu_state,btn_name,'->',new_state)
     if new_state != '':
         menu_state = new_state
+    update_display = True    
+
         
 btn_A.when_pressed = lambda: do_btn('A')
 btn_B.when_pressed = lambda: do_btn('B')
@@ -294,7 +332,9 @@ btn_Center.when_pressed = lambda: do_btn('C')
 time1 = time.monotonic()
 next_clip = time1 + time_btw_tx
 
+print('main while loop')
 while True:
+    global update_display
     if time.monotonic() > time1 + 60:
         time1 = time1 + 60
         if duration_min > 0:
@@ -307,16 +347,19 @@ while True:
                 st = time.strftime("%Y-%m-%d_%H-%M-%S", ts)
                 if recording:
                     try:
-                        rec_audio_clip(st)
+                        menu_info  = st
+                        print(st)
+                        rec_audio_clip(st)                     
                     except:
-                        print('Recording failed')
-                print(st)
+                        menu_info = 'Recording failed' 
+                        print(menu_info)
+                
                 update_display = True
         else:
             recording = False
             menu_state = 'Ready'
-            update_display = True
-    if update_display:
+            update_display = True     
+    if update_display == True:
         show_rows()
         update_display = False
     if failures > 10:
