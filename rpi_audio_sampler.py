@@ -32,7 +32,7 @@ disp = adafruit_ssd1306.SSD1306_I2C(128, 64, i2c)
 
 p = pyaudio.PyAudio()
 adev_list = []
-mic_name = ['Blue','Logitech','USB PnP Sound Device'][2]
+mic_name = ['Blue','Logitech','USB PnP Sound Device'][0]
 for ii in range(p.get_device_count()):
     adev_list = adev_list + [p.get_device_info_by_index(ii).get('name')]
 print(adev_list)
@@ -67,7 +67,7 @@ height = display.height
 menu_state = 'Home'
 recording = False
 
-time_btw_tx  = 30
+time_btw_tx  = 60
 duration_min =120 
 menu_state = 'Home'
 last_time = timer()
@@ -137,14 +137,27 @@ def reboot():
     call("sudo shutdown -r now", shell=True)
 
 def copy_clip(file_name):
+    print('copy_clip: ', file_name)
     try:
-        p = subprocess.Popen(["scp", file_name, "tom@192.168.0.10:3d_audio"])
+        p = subprocess.Popen(["scp", file_name, "tom@192.168.0.16:3d_audio"])
         sts = os.waitpid(p.pid, 0)
     except:
         failures = failures + 1
         print('scp failed')
-        
+
 def rec_audio_clip(clip_name):
+    record_secs = 3
+    wav_output_filename = WAV_DIR + '/' +clip_name+'.wav' # name of .wav file
+    command = ["arecord","--device=hw:1,0",
+                         "-d",str(record_secs),
+                         "--format","S16_LE",
+                         "--rate","44100",
+                         "-c1",wav_output_filename]
+    outp = subprocess.check_output(command, stdin=None, stderr=None,shell=False,universal_newlines=False)
+    print(outp)
+    copy_clip(wav_output_filename)
+        
+def rec_audio_clip_deprecated(clip_name):
     print('Recording')
     do_continue = True
     
@@ -176,7 +189,9 @@ def rec_audio_clip(clip_name):
         try:
             # loop through stream and append audio chunks to frame array
             for ii in range(0,int((samp_rate/chunk)*record_secs)):
+                print(ii)
                 data = stream.read(chunk)
+                print(len(data))
                 frames.append(data)
         except:
             print('failed when reading the stream')
@@ -343,7 +358,7 @@ while True:
         if duration_min > 0:
             if time.monotonic() > time1:
                 time1 = time1 + time_btw_tx
-                ts = time.gmtime()
+                ts = time.localtime()
                 st = time.strftime("%Y-%m-%d_%H-%M-%S", ts)
                 if recording:
                     try:
